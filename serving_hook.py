@@ -3,6 +3,7 @@ import json
 import logging
 
 import cv2
+from ml_serving.utils import helpers
 import numpy as np
 
 
@@ -37,26 +38,11 @@ def _boolean_string(s):
     return s == 'true'
 
 
-def _load_image(inputs, image_key):
-    image = inputs.get(image_key)
-    if image is None:
-        raise RuntimeError('Missing "{0}" key in inputs. Provide an image in "{0}" key'.format(image_key))
-
-    if len(image.shape) == 0:
-        image = np.stack([image.tolist()])
-
-    if len(image.shape) < 3:
-        image = cv2.imdecode(np.frombuffer(image[0], np.uint8), cv2.IMREAD_COLOR)
-
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    return image
-
-
 def process(inputs, ctx, **kwargs):
-    frame = _load_image(inputs, 'input')
+    frame, is_video = helpers.load_image(inputs, 'input')
     # convert to BGR
-    data = frame[:, :, ::-1]
+    data = frame.copy()
+    #data = data[:, :, ::-1]
     data = cv2.resize(data, PARAMS['target_size'], interpolation=cv2.INTER_AREA)
 
     # convert to input shape (N, C, H, W)
@@ -80,14 +66,14 @@ def process(inputs, ctx, **kwargs):
 
     result = {'person_boxes': bounding_boxes, 'person_scores': bboxes_raw[:, 2]}
     if len(bounding_boxes) > 0:
-        table = result_table_string(result, frame)
         add_overlays(frame, bounding_boxes, labels=None)
+        table = result_table_string(result, frame)
     else:
         table = []
 
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-    if PARAMS['output_type'] == 'bytes':
+    if not is_video:
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         image_bytes = cv2.imencode(".jpg", frame, params=[cv2.IMWRITE_JPEG_QUALITY, 95])[1].tostring()
     else:
         image_bytes = frame
